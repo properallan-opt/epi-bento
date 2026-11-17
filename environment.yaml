@@ -1,0 +1,15 @@
+name: saci-epi
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - bentoml==1.4.39
+      - ultralytics==8.4.191
+      - torch>=2.6,<3
+      - torchvision>=0.21,<1
+      - numpy==1.26.4
+      - opencv-python==4.11.0.86
+# On Jetson, install the NVIDIA-compatible torch/torchvision wheels instead of
+# the generic PyPI wheels. The ARM/CUDA lock from smokefire is not portable.

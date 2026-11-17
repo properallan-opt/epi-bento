@@ -1,0 +1,29 @@
+schema_version: 1
+name: epi
+version: "2.0.0"
+
+runtime:
+  backend: unix
+  environment: saci-epi
+  environment_file: environment.yaml
+  service: service:EPIDetection
+  command: mamba
+  host: 127.0.0.1
+  port: 3005
+  working_dir: .
+  ready_endpoint: /readyz
+  environment_variables:
+    EPI_MODEL_PATH: model_weights/ppe-v2-100epochs.pt
+    EPI_DEVICE: "cpu"
+    EPI_IMAGE_SIZE: "640"
+    EPI_CONFIDENCE_THRESHOLD: "0.25"
+    EPI_PERSON_THRESHOLD: "0.35"
+    EPI_HELMET_THRESHOLD: "0.45"
+    EPI_VEST_THRESHOLD: "0.45"
+    EPI_IOU_THRESHOLD: "0.70"
+  extra_args: []
+
+inference:
+  default_method: recognize
+  timeout_s: 30
+  server_ready_timeout_s: 120
