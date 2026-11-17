@@ -1,6 +1,6 @@
 schema_version: 1
 name: epi
-version: "2.0.0"
+version: "2.0.1"
 
 runtime:
   backend: unix
@@ -13,8 +13,8 @@ runtime:
   working_dir: .
   ready_endpoint: /readyz
   environment_variables:
-    EPI_MODEL_PATH: model_weights/ppe-v2-100epochs.pt
-    EPI_DEVICE: "cpu"
+    EPI_MODEL_PATH: model_weights/ppe-v2-100epochs.engine
+    EPI_DEVICE: "0"
     EPI_IMAGE_SIZE: "640"
     EPI_CONFIDENCE_THRESHOLD: "0.25"
     EPI_PERSON_THRESHOLD: "0.35"

@@ -12,11 +12,11 @@ from epi_logic import build_response
 from saci_yolo import BaseYOLOService
 
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = Path(os.getenv('EPI_MODEL_PATH', 'model_weights/ppe-v2-100epochs.pt'))
+MODEL_PATH = Path(os.getenv('EPI_MODEL_PATH', 'model_weights/ppe-v2-100epochs.engine'))
 if not MODEL_PATH.is_absolute():
     MODEL_PATH = BASE_DIR / MODEL_PATH
 IMAGE_SIZE = int(os.getenv('EPI_IMAGE_SIZE', '640'))
-DEVICE = os.getenv('EPI_DEVICE', 'cpu')
+DEVICE = os.getenv('EPI_DEVICE', '0')
 CONFIDENCE_THRESHOLD = float(os.getenv('EPI_CONFIDENCE_THRESHOLD', '0.25'))
 PERSON_THRESHOLD = float(os.getenv('EPI_PERSON_THRESHOLD', '0.35'))
 HELMET_THRESHOLD = float(os.getenv('EPI_HELMET_THRESHOLD', '0.45'))

@@ -1,6 +1,8 @@
 # EPI Bento — SACI
 
-Detecção de EPI com BentoML + Ultralytics, usando `model_weights/ppe-v2-100epochs.pt`.
+Detecção de EPI com BentoML + Ultralytics, usando por padrão
+`model_weights/ppe-v2-100epochs.engine` (TensorRT FP16 para a GPU Orin da `flintstone`).
+O checkpoint `model_weights/ppe-v2-100epochs.pt` continua disponível para CPU/reexportação.
 Implementação baseada em `/home/ppiper/smokefire-bento`, com o mesmo transporte
 `BaseYOLOService` e saída por pessoa compatível com a lógica de `epi-main.zip`.
 Não depende de RabbitMQ, Docker, oclusão ou de um segundo modelo de pessoas.
@@ -11,6 +13,8 @@ Não depende de RabbitMQ, Docker, oclusão ou de um segundo modelo de pessoas.
 .
 ├── environment.yaml
 ├── model_weights/
+│   ├── ppe-v2-100epochs.engine
+│   ├── ppe-v2-100epochs.engine.json  # Proveniência e validação da exportação
 │   └── ppe-v2-100epochs.pt
 ├── saci-model.yaml
 ├── saci_yolo.py          # Transportes copiados do exemplo de fogo
@@ -20,7 +24,7 @@ Não depende de RabbitMQ, Docker, oclusão ou de um segundo modelo de pessoas.
 └── README.md
 ```
 
-O peso foi movido de `Downloads` para este repositório e é versionado com Git LFS.
+Os pesos `.pt` e `.engine` são versionados com Git LFS.
 Ao clonar, execute `git lfs install` e `git lfs pull`.
 
 ## Instalação e execução
@@ -38,6 +42,39 @@ O ambiente é uma especificação portátil, não um lock por arquitetura. Difer
 do ambiente do exemplo de fogo, não fixa bibliotecas ARM64/CUDA específicas.
 Em Jetson, use os wheels PyTorch/torchvision compatíveis com seu JetPack antes de
 servir. A versão Ultralytics foi fixada em `8.4.191`, registrada no checkpoint.
+Para o `.engine`, instale também o TensorRT compatível com o ambiente de exportação
+(10.16.2.10 na `flintstone`); ele não é instalado pelo `environment.yaml` portátil.
+
+Para executar em CPU, selecione explicitamente o checkpoint:
+
+```bash
+EPI_MODEL_PATH=model_weights/ppe-v2-100epochs.pt EPI_DEVICE=cpu \
+  bentoml serve service:EPIDetection --host 127.0.0.1 --port 3005
+```
+
+### Exportação TensorRT
+
+Engine gerada na `flintstone` (hostname `jetson-02`, GPU Orin, compute capability 8.7),
+com Ultralytics 8.4.191, TensorRT 10.16.2.10 e PyTorch 2.14.1+cu130:
+
+```python
+from ultralytics import YOLO
+
+YOLO('model_weights/ppe-v2-100epochs.pt').export(
+    format='engine', imgsz=640, batch=1, half=True, dynamic=False,
+    workspace=1, device=0, simplify=False,
+)
+```
+
+Na máquina de exportação, foi usado `YOLO_AUTOINSTALL=false` para utilizar o TensorRT
+já instalado pelo sistema, sem substituí-lo via pip. O workspace é limitado a 1 GiB.
+A entrada é fixa `[1, 3, 640, 640]`, com NMS realizado pelo Ultralytics.
+Mantenha `EPI_IMAGE_SIZE=640` ao usar esta engine. Engines TensorRT são específicas
+para hardware/runtime: para outra GPU ou versão incompatível, reexporte o `.pt` no
+destino. Consulte `model_weights/ppe-v2-100epochs.engine.json` para hashes e validação.
+O PyTorch usado na exportação emite um aviso de suporte à arquitetura Orin; apesar
+de os smoke tests TensorRT terem passado, prefira wheels oficialmente compatíveis
+com o JetPack no ambiente de produção.
 
 ### SACI
 
@@ -97,8 +134,8 @@ alteram a regra de conformidade capacete + colete**. `no_helmet` não conta como
 
 | Variável | Padrão | Finalidade |
 |---|---|---|
-| `EPI_MODEL_PATH` | `model_weights/ppe-v2-100epochs.pt` | Relativo à raiz do código ou absoluto |
-| `EPI_DEVICE` | `cpu` | Use `0` para GPU CUDA compatível |
+| `EPI_MODEL_PATH` | `model_weights/ppe-v2-100epochs.engine` | Relativo à raiz do código ou absoluto; `.pt` para CPU |
+| `EPI_DEVICE` | `0` | GPU CUDA; use `cpu` somente com `.pt` |
 | `EPI_IMAGE_SIZE` | `640` | `imgsz` |
 | `EPI_CONFIDENCE_THRESHOLD` | `0.25` | Classes adicionais |
 | `EPI_PERSON_THRESHOLD` | `0.35` | Pessoa |
@@ -108,7 +145,8 @@ alteram a regra de conformidade capacete + colete**. `no_helmet` não conta como
 
 O serviço usa um worker. Para execução direta, exporte as variáveis antes de iniciar.
 No SACI, ajuste `runtime.environment_variables` no manifesto (elas definem os valores
-do processo gerenciado). Não há engine TensorRT pré-gerada neste repositório.
+do processo gerenciado). O manifesto aponta para a engine na GPU `0`; para CPU,
+altere nele `EPI_MODEL_PATH` para o `.pt` e `EPI_DEVICE` para `cpu`.
 
 Cada chamada aceita `confidence_threshold`, `iou_threshold`, `person_threshold`,
 `helmet_threshold` e `vest_threshold` entre 0 e 1. Os limiares de pessoa/capacete/colete
@@ -232,5 +270,9 @@ python -m py_compile service.py saci_yolo.py epi_logic.py
 Cobertura: conformidade/ausência de EPI, múltiplas pessoas, classes negativas,
 regiões espaciais, tipos legados, limiares por classe, ausência de caixas e transportes
 array/path/base64/raw/SHM com validações de entrada. Testes de serviço usam resultado
-YOLO sintético, sem carregar pesos. O peso real e HTTP foram validados em CPU com
-frame preto; isso não substitui avaliação de precisão em cenas reais.
+YOLO sintético, sem carregar pesos. O checkpoint `.pt` e HTTP foram validados em CPU
+com frame preto. A engine foi carregada com Ultralytics na `flintstone` e validada com
+frames pretos 640×640/480×640 (zero caixas) e a imagem `bus.jpg` do Ultralytics
+(11 caixas, incluindo pessoas), exercitando pré-processamento, TensorRT e NMS.
+Esses smoke tests não substituem avaliação de precisão de EPI em cenas reais;
+o serviço HTTP com a engine não foi validado nesta etapa.
