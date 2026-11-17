@@ -13,6 +13,22 @@ def person_regions(person):
     )
 
 
+def equipment_regions(person):
+    """Heuristic regions, not anatomical/keypoint-based PPE verification."""
+    x1, y1, x2, y2 = person
+    h, w = max(1, y2 - y1), max(1, x2 - x1)
+    head, torso = person_regions(person)
+    return {
+        'helmet': head,
+        'vest': torso,
+        'goggles': head,
+        'gloves': (x1 - int(.20*w), y1 + int(.20*h),
+                   x2 + int(.20*w), y1 + int(.85*h)),
+        'boots': (x1 - int(.10*w), y1 + int(.70*h),
+                  x2 + int(.10*w), y2),
+    }
+
+
 def center_inside(box, region):
     x1, y1, x2, y2 = box
     rx1, ry1, rx2, ry2 = region
@@ -20,7 +36,7 @@ def center_inside(box, region):
 
 
 def build_response(detections: list[dict]) -> dict:
-    """Associate positive helmet/vest detections using the Docker heuristics.
+    """Associate positive PPE; preserve helmet/vest compliance and max confidence.
 
     Negative classes (e.g. no_helmet) remain observable in raw_detections but
     are never treated as positive PPE. Like the legacy, associations are not
@@ -29,16 +45,15 @@ def build_response(detections: list[dict]) -> dict:
     people = [d for d in detections if d['label'].strip().lower() == 'person']
     equipment = {
         label: [d for d in detections if d['label'].strip().lower() == label]
-        for label in ('helmet', 'vest')
+        for label in ('helmet', 'vest', 'gloves', 'boots', 'goggles')
     }
     persons_out = []
     max_conf = 0.0
     for idx, person in enumerate(people):
         # The old implementation rounds xyxy before region association.
         box = [int(round(v)) for v in person['bbox_xyxy']]
-        head, torso = person_regions(box)
         selected = {}
-        for label, region in (('helmet', head), ('vest', torso)):
+        for label, region in equipment_regions(box).items():
             candidates = [d for d in equipment[label]
                           if center_inside([int(round(v)) for v in d['bbox_xyxy']], region)]
             selected[label] = max(candidates, key=lambda d: d['confidence'], default=None)
@@ -53,6 +68,15 @@ def build_response(detections: list[dict]) -> dict:
             'helmet_confidence': str(helmet['confidence']) if helmet else '0.0',
             'vest': vest is not None,
             'vest_confidence': str(vest['confidence']) if vest else '0.0',
+            **{
+                key: value
+                for label in ('gloves', 'boots', 'goggles')
+                for key, value in (
+                    (label, selected[label] is not None),
+                    (f'{label}_confidence', str(selected[label]['confidence'])
+                     if selected[label] is not None else '0.0'),
+                )
+            },
             'compliant': helmet is not None and vest is not None,
         })
         max_conf = max(max_conf, person['confidence'],

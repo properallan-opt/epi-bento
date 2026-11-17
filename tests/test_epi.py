@@ -60,6 +60,71 @@ class LogicTests(unittest.TestCase):
         self.assertTrue(out['detection'])
         self.assertFalse(out['detections'][0]['helmet'])
 
+    def test_additional_ppe_positive_and_legacy_compliance(self):
+        out = build_response([
+            self.person, self.helmet, self.vest,
+            det('gloves', [85, 220, 105, 250], .95),
+            det('boots', [110, 350, 150, 390], .96),
+            det('goggles', [125, 125, 155, 145], .97),
+        ])
+        person = out['detections'][0]
+        for label, confidence in [('gloves', '0.95'), ('boots', '0.96'), ('goggles', '0.97')]:
+            self.assertIs(person[label], True)
+            self.assertEqual(person[f'{label}_confidence'], confidence)
+        self.assertTrue(person['compliant'])
+        self.assertFalse(out['detection'])
+        # Additional PPE must not change the legacy maximum confidence.
+        self.assertEqual(out['EPIMaxConfidence'], '0.9')
+        self.assertEqual(out['EPIDetection']['detections'], out['detections'])
+        json.dumps(out, allow_nan=False)
+
+    def test_additional_ppe_absent_does_not_change_compliance(self):
+        person = build_response([self.person, self.helmet, self.vest])['detections'][0]
+        for label in ('gloves', 'boots', 'goggles'):
+            self.assertIs(person[label], False)
+            self.assertEqual(person[f'{label}_confidence'], '0.0')
+        self.assertTrue(person['compliant'])
+
+    def test_additional_ppe_wrong_regions_and_negative_classes(self):
+        out = build_response([
+            self.person,
+            det('goggles', [120, 320, 150, 350]),
+            det('boots', [120, 120, 150, 150]),
+            det('gloves', [120, 105, 150, 125]),
+            det('no_goggle', [120, 120, 150, 150]),
+            det('no_boots', [120, 350, 150, 390]),
+            det('no_gloves', [120, 220, 150, 250]),
+            det('none', [120, 220, 150, 250]),
+        ])
+        for label in ('gloves', 'boots', 'goggles'):
+            self.assertIs(out['detections'][0][label], False)
+        self.assertTrue(out['detection'])
+        self.assertEqual(out['detection_count'], 8)
+
+    def test_additional_ppe_highest_confidence_and_multiple_people(self):
+        out = build_response([
+            self.person, det('Person', [500, 100, 600, 400]),
+            det('boots', [110, 350, 150, 390], .6),
+            det(' BOOTS ', [110, 350, 150, 390], .9),
+            det('gloves', [510, 220, 550, 250], .7),
+        ])
+        first, second = out['detections']
+        self.assertTrue(first['boots'])
+        self.assertEqual(first['boots_confidence'], '0.9')
+        self.assertFalse(first['gloves'])
+        self.assertFalse(second['boots'])
+        self.assertTrue(second['gloves'])
+
+    def test_additional_ppe_inclusive_region_boundaries(self):
+        out = build_response([
+            self.person,
+            det('gloves', [79, 159, 81, 161]),  # center (80,160)
+            det('boots', [89, 399, 91, 401]),   # center (90,400)
+            det('goggles', [89, 213, 91, 215]), # center (90,214)
+        ])
+        for label in ('gloves', 'boots', 'goggles'):
+            self.assertTrue(out['detections'][0][label])
+
     def test_multiple_people(self):
         out = build_response([self.person, self.helmet, self.vest,
                               det('person', [500, 100, 600, 400])])

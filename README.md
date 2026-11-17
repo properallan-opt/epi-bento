@@ -44,6 +44,18 @@ Em Jetson, use os wheels PyTorch/torchvision compatíveis com seu JetPack antes 
 servir. A versão Ultralytics foi fixada em `8.4.191`, registrada no checkpoint.
 Para o `.engine`, instale também o TensorRT compatível com o ambiente de exportação
 (10.16.2.10 na `flintstone`); ele não é instalado pelo `environment.yaml` portátil.
+No ambiente Python 3.10 do SACI na `flintstone`, os bindings foram instalados
+separadamente, mantendo as bibliotecas nativas TensorRT 10.16.2.10 do sistema:
+
+```bash
+# Dentro do ambiente isolado do EPI, somente na plataforma descrita acima:
+python -m pip install --no-deps \
+  tensorrt-cu13==10.16.1.11 tensorrt-cu13-bindings==10.16.1.11
+```
+
+Não instale automaticamente uma versão mais recente de `tensorrt-cu13-libs`:
+o runtime nativo deve ser compatível com a engine. Esta preparação local do ambiente
+não é aplicada automaticamente pelo manifesto portátil.
 
 Para executar em CPU, selecione explicitamente o checkpoint:
 
@@ -78,13 +90,23 @@ com o JetPack no ambiente de produção.
 
 ### SACI
 
+Esta release usa `version: "2.1.0-jp7.2.1-b49"` no `saci-model.yaml`,
+correspondente à tag `v2.1.0-jp7.2.1-b49`. O sufixo `b49` identifica o build do
+JetPack, não um contador de builds do modelo.
+
+```bash
+saci add https://github.com/properallan-opt/epi-bento --ref v2.1.0-jp7.2.1-b49
+saci serve epi@2.1.0-jp7.2.1-b49 --wait 120
+saci infer epi /caminho/imagem.jpg
+```
+
 O manifesto usa `backend: unix`, ambiente `saci-epi`, serviço `service:EPIDetection`,
 porta `3005` e método padrão `recognize`. A porta é diferente da usada pelo fogo.
 Para registrar a partir deste repositório Git local (com os arquivos commitados):
 
 ```bash
 saci add /home/ppiper/Documents/epi-bento
-saci start epi
+saci serve epi
 saci infer epi /caminho/imagem.jpg
 ```
 
@@ -117,6 +139,9 @@ A associação mantém a heurística do Docker:
 
 - capacete: centro da caixa dentro dos 38% superiores da pessoa, com margem lateral de 10%;
 - colete: centro dentro da região de 20% a 78% da altura, margem lateral de 8%;
+- óculos: mesma região do capacete (38% superiores, margem lateral de 10%);
+- luvas: centro entre 20% e 85% da altura, margem lateral de 20%;
+- botas: centro entre 70% e 100% da altura, margem lateral de 10%;
 - em cada região, seleciona-se o equipamento de maior confiança;
 - pessoa conforme = capacete **e** colete associados;
 - alerta = pelo menos uma pessoa não conforme;
@@ -127,8 +152,19 @@ um equipamento pode ser associado a mais de uma pessoa, também como no legado.
 Ausência de detecção positiva não é prova física de ausência de EPI: oclusão, escala
 e limiares podem gerar alertas. Valide os limiares com imagens representativas.
 
-Luvas, botas, óculos e classes negativas são expostos nas detecções brutas, mas **não
-alteram a regra de conformidade capacete + colete**. `no_helmet` não conta como capacete.
+Cada pessoa agora inclui `gloves`, `boots` e `goggles` (booleanos), acompanhados de
+`gloves_confidence`, `boots_confidence` e `goggles_confidence` (strings, `"0.0"`
+quando não associados), tanto em `detections` quanto em `EPIDetection.detections`.
+`true` significa pelo menos uma caixa associada: não comprova que ambas as mãos
+ou ambos os pés estejam equipados. `false` significa não detectado/associado,
+**não ausência física comprovada**. As regiões são heurísticas sem pose/keypoints;
+valide especialmente mãos fora da região, oclusões e pessoas sobrepostas.
+
+As novas associações são informativas: **não alteram a regra de conformidade
+capacete + colete**, nem o cálculo legado de `EPIMaxConfidence`.
+Classes negativas (`no_helmet`, `no_goggle`, `no_gloves`, `no_boots`) e `none`
+continuam apenas em `raw_detections`/`bbox`/contadores: não geram booleanos por
+pessoa, não contam como EPI positivo e não anulam uma detecção positiva associada.
 
 ## Configuração
 
@@ -230,6 +266,12 @@ Exemplo ilustrativo de pessoa sem colete (campos resumidos):
     "helmet_confidence": "0.9",
     "vest": false,
     "vest_confidence": "0.0",
+    "gloves": false,
+    "gloves_confidence": "0.0",
+    "boots": true,
+    "boots_confidence": "0.78",
+    "goggles": false,
+    "goggles_confidence": "0.0",
     "compliant": false
   }],
   "non_compliant": true,
@@ -244,13 +286,14 @@ Exemplo ilustrativo de pessoa sem colete (campos resumidos):
 - `detections`: lista **por pessoa**, preservando nomes, tipos e coordenadas do Docker.
   `coordinates.x/y` são o **centro**, não o canto superior esquerdo. Confianças são strings.
 - `non_compliant` e `time`: mesmos campos do legado; `time` é Unix timestamp do processamento.
-- `EPIDetection`: objeto com `{detections, non_compliant, time}` idêntico ao conteúdo
-  antes serializado no header RabbitMQ. Para um consumidor legado, use
+- `EPIDetection`: objeto com `{detections, non_compliant, time}` no formato legado,
+  com os campos adicionais de luvas/botas/óculos por pessoa. Para um consumidor legado, use
   `headers['EPIDetection'] = json.dumps(response['EPIDetection'])`.
-- `EPIMaxConfidence`: string com a maior confiança entre pessoas e EPIs associados,
-  ou `"0.0"` sem pessoas, como no Docker.
+- `EPIMaxConfidence`: string com a maior confiança entre pessoas, capacetes e coletes
+  associados, ou `"0.0"` sem pessoas, como no Docker. Não inclui luvas/botas/óculos.
 - `raw_detections`: caixas do modelo como `{class_id,label,confidence,bbox_xyxy}`.
-  Use este campo para luvas, botas, óculos e classes negativas.
+  Inclui também as caixas de luvas, botas, óculos e classes negativas, independentemente
+  de sua associação a pessoas.
 - `counts_by_label`, `detection_count`, `person_count`, `non_compliant_count`: contadores.
   `detection_count` conta caixas brutas aceitas, não apenas pessoas/alertas.
 
@@ -268,7 +311,9 @@ python -m py_compile service.py saci_yolo.py epi_logic.py
 ```
 
 Cobertura: conformidade/ausência de EPI, múltiplas pessoas, classes negativas,
-regiões espaciais, tipos legados, limiares por classe, ausência de caixas e transportes
+regiões espaciais (incluindo limites), luvas/botas/óculos presentes e ausentes,
+seleção por confiança, preservação da conformidade/máximo legado, tipos legados,
+limiares por classe, ausência de caixas e transportes
 array/path/base64/raw/SHM com validações de entrada. Testes de serviço usam resultado
 YOLO sintético, sem carregar pesos. O checkpoint `.pt` e HTTP foram validados em CPU
 com frame preto. A engine foi carregada com Ultralytics na `flintstone` e validada com

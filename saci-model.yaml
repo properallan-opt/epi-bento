@@ -1,6 +1,6 @@
 schema_version: 1
 name: epi
-version: "2.0.1"
+version: "2.1.0-jp7.2.1-b49"
 
 runtime:
   backend: unix
