@@ -4,7 +4,7 @@ version: "2.1.0-jp7.2.1-b49"
 
 runtime:
   backend: unix
-  environment: saci-epi
+  environment: yolo-base-jp7.2.1-b49
   environment_file: environment.yaml
   service: service:EPIDetection
   command: mamba

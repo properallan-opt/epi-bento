@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-11-17T20:26:12.055893+00:00",
+  "generated_at_utc": "2026-11-18T18:16:18.002611+00:00",
   "host_alias": "flintstone",
   "hostname": "jetson-02",
   "architecture": "aarch64",
@@ -8,25 +8,25 @@
     8,
     7
   ],
-  "python": "3.12.3",
-  "ultralytics": "8.4.191",
-  "torch": "2.14.1+cu130",
-  "torch_cuda": "13.0",
-  "tensorrt": "10.16.2.10",
+  "python": "3.10.21",
+  "ultralytics": "8.4.95",
+  "torch": "2.13.0+cu132",
+  "torch_cuda": "13.2",
+  "tensorrt": "11.3.0.99",
   "source": {
     "file": "ppe-v2-100epochs.pt",
     "sha256": "2a2e22b51f771ea2a90ef040c7d06bf59dbfdff6eba220da9da2a7631daedbc4"
   },
   "engine": {
     "file": "ppe-v2-100epochs.engine",
-    "sha256": "7587394a57347a231c6ef46e1150a2f4484c014c241e47c1fe0d2cdd66b90edf",
-    "size_bytes": 22578283
+    "sha256": "73aa0e2df3133c26cbc6910f08493e204414ebf7145271622ee92329c6056842",
+    "size_bytes": 140398968
   },
   "export_options": {
     "format": "engine",
     "imgsz": 640,
     "batch": 1,
-    "half": true,
+    "half": false,
     "dynamic": false,
     "workspace": 1,
     "device": 0,
@@ -55,9 +55,9 @@
       "detection_count": 0,
       "class_ids": [],
       "speed_ms": {
-        "preprocess": 38.02171302959323,
-        "inference": 6.658247031737119,
-        "postprocess": 2.881558029912412
+        "preprocess": 4.096761986147612,
+        "inference": 16.443467990029603,
+        "postprocess": 3.305090998765081
       }
     },
     "black_480x640": {
@@ -69,9 +69,9 @@
       "detection_count": 0,
       "class_ids": [],
       "speed_ms": {
-        "preprocess": 2.246979041956365,
-        "inference": 6.368287024088204,
-        "postprocess": 1.651889004278928
+        "preprocess": 2.742993994615972,
+        "inference": 16.083298018202186,
+        "postprocess": 1.7941969563253224
       }
     },
     "ultralytics_bus": {
@@ -95,11 +95,11 @@
         4
       ],
       "speed_ms": {
-        "preprocess": 8.501982025336474,
-        "inference": 6.57827703980729,
-        "postprocess": 22.298746975138783
+        "preprocess": 8.822376024909317,
+        "inference": 16.06307300971821,
+        "postprocess": 18.80574697861448
       }
     }
   },
-  "limitations": "Smoke tests only, not a PPE accuracy evaluation. Engine is hardware/runtime-specific."
+  "limitations": "Smoke tests only, not a PPE accuracy evaluation. FP32 engine built with the shared yolo-base-jp7.2.1-b49 environment (TensorRT 11.3.0.99); hardware/runtime-specific."
 }

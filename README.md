@@ -1,7 +1,7 @@
 # EPI Bento — SACI
 
 Detecção de EPI com BentoML + Ultralytics, usando por padrão
-`model_weights/ppe-v2-100epochs.engine` (TensorRT FP16 para a GPU Orin da `flintstone`).
+`model_weights/ppe-v2-100epochs.engine` (TensorRT 11.3.0.99, FP32, para a GPU Orin da `flintstone`).
 O checkpoint `model_weights/ppe-v2-100epochs.pt` continua disponível para CPU/reexportação.
 Implementação baseada em `/home/ppiper/smokefire-bento`, com o mesmo transporte
 `BaseYOLOService` e saída por pessoa compatível com a lógica de `epi-main.zip`.
@@ -31,31 +31,19 @@ Ao clonar, execute `git lfs install` e `git lfs pull`.
 
 ```bash
 mamba env create -f environment.yaml
-mamba activate saci-epi
+mamba activate yolo-base-jp7.2.1-b49
 bentoml serve service:EPIDetection --host 127.0.0.1 --port 3005
 curl http://127.0.0.1:3005/readyz
 ```
 
 Documentação HTTP em `http://127.0.0.1:3005/docs`.
 
-O ambiente é uma especificação portátil, não um lock por arquitetura. Diferentemente
-do ambiente do exemplo de fogo, não fixa bibliotecas ARM64/CUDA específicas.
-Em Jetson, use os wheels PyTorch/torchvision compatíveis com seu JetPack antes de
-servir. A versão Ultralytics foi fixada em `8.4.191`, registrada no checkpoint.
-Para o `.engine`, instale também o TensorRT compatível com o ambiente de exportação
-(10.16.2.10 na `flintstone`); ele não é instalado pelo `environment.yaml` portátil.
-No ambiente Python 3.10 do SACI na `flintstone`, os bindings foram instalados
-separadamente, mantendo as bibliotecas nativas TensorRT 10.16.2.10 do sistema:
-
-```bash
-# Dentro do ambiente isolado do EPI, somente na plataforma descrita acima:
-python -m pip install --no-deps \
-  tensorrt-cu13==10.16.1.11 tensorrt-cu13-bindings==10.16.1.11
-```
-
-Não instale automaticamente uma versão mais recente de `tensorrt-cu13-libs`:
-o runtime nativo deve ser compatível com a engine. Esta preparação local do ambiente
-não é aplicada automaticamente pelo manifesto portátil.
+O `environment.yaml` é o **mesmo lock do smokefire** (`yolo-base-jp7.2.1-b49`,
+Python 3.10, torch 2.13.0+cu132, **TensorRT 11.3.0.99** com bindings e libs,
+Ultralytics 8.4.95, BentoML 1.4.39). Por ter o mesmo conteúdo, o SACI reutiliza o
+ambiente já criado (mesmo hash), sem instalar nada. Ele é específico de
+Jetson/JetPack 7.2.1 (ARM64, CUDA 13.2); não é portátil para outras plataformas.
+Não altere este arquivo isoladamente: a engine só carrega no TensorRT em que foi gerada.
 
 Para executar em CPU, selecione explicitamente o checkpoint:
 
@@ -66,27 +54,35 @@ EPI_MODEL_PATH=model_weights/ppe-v2-100epochs.pt EPI_DEVICE=cpu \
 
 ### Exportação TensorRT
 
-Engine gerada na `flintstone` (hostname `jetson-02`, GPU Orin, compute capability 8.7),
-com Ultralytics 8.4.191, TensorRT 10.16.2.10 e PyTorch 2.14.1+cu130:
+Engine gerada na `flintstone` (hostname `jetson-02`, GPU Orin, compute capability 8.7)
+com o ambiente `yolo-base-jp7.2.1-b49`: Ultralytics 8.4.95, TensorRT 11.3.0.99 e
+PyTorch 2.13.0+cu132.
 
 ```python
 from ultralytics import YOLO
 
 YOLO('model_weights/ppe-v2-100epochs.pt').export(
-    format='engine', imgsz=640, batch=1, half=True, dynamic=False,
+    format='engine', imgsz=640, batch=1, half=False, dynamic=False,
     workspace=1, device=0, simplify=False,
 )
 ```
 
-Na máquina de exportação, foi usado `YOLO_AUTOINSTALL=false` para utilizar o TensorRT
-já instalado pelo sistema, sem substituí-lo via pip. O workspace é limitado a 1 GiB.
-A entrada é fixa `[1, 3, 640, 640]`, com NMS realizado pelo Ultralytics.
+Foi usado `YOLO_AUTOINSTALL=false`, com `onnx`, `protobuf` e `ml_dtypes==0.5.1`
+em um diretório à parte (`PYTHONPATH`), sem alterar o ambiente compartilhado.
+O workspace é limitado a 1 GiB. A entrada é fixa `[1, 3, 640, 640]`, com NMS no Ultralytics.
+
+**FP32:** o TensorRT 11 é fortemente tipado e removeu a flag FP16 do builder; o FP16
+exige o NVIDIA ModelOpt (AutoCast), ausente do ambiente. Por isso a engine é FP32
+(~134 MB; ~16 ms de inferência no Orin nos smoke tests, contra ~6,6 ms da versão FP16
+anterior em TensorRT 10). Os testes produziram as mesmas 11 caixas/classes.
+Para FP16, instale o ModelOpt e reexporte com `quantize=16`.
+
+A exportação precisa de memória de GPU livre (memória unificada no Jetson): com outros
+modelos carregados ela falha por falta de memória.
 Mantenha `EPI_IMAGE_SIZE=640` ao usar esta engine. Engines TensorRT são específicas
-para hardware/runtime: para outra GPU ou versão incompatível, reexporte o `.pt` no
-destino. Consulte `model_weights/ppe-v2-100epochs.engine.json` para hashes e validação.
-O PyTorch usado na exportação emite um aviso de suporte à arquitetura Orin; apesar
-de os smoke tests TensorRT terem passado, prefira wheels oficialmente compatíveis
-com o JetPack no ambiente de produção.
+para hardware/runtime: para outra GPU ou outra versão do TensorRT, reexporte o `.pt`.
+Consulte `model_weights/ppe-v2-100epochs.engine.json` para hashes e validação.
+O PyTorch emite um aviso de suporte à arquitetura Orin; os smoke tests passaram.
 
 ### SACI
 
@@ -100,7 +96,7 @@ saci serve epi@2.1.0-jp7.2.1-b49 --wait 120
 saci infer epi /caminho/imagem.jpg
 ```
 
-O manifesto usa `backend: unix`, ambiente `saci-epi`, serviço `service:EPIDetection`,
+O manifesto usa `backend: unix`, ambiente `yolo-base-jp7.2.1-b49` (compartilhado com o smokefire), serviço `service:EPIDetection`,
 porta `3005` e método padrão `recognize`. A porta é diferente da usada pelo fogo.
 Para registrar a partir deste repositório Git local (com os arquivos commitados):
 
